@@ -9,16 +9,14 @@ summary: "<div><div class=\"alert alert-primary\">You will practice concepts fre
   \ use of this technology. In this project, you will try yourself at making a microcosm\
   \ where virtual miners earn cryptocurrency and exchange messages and transactions\
   \ using blockchain. As difficult as the project might be, it is bound to pay off:\
-  \ not in cryptocurrency, but in knowledge and skills.</p></div><br/><br/>Learn more\
-  \ at <a href=\"https://hyperskill.org/projects/50?utm_source=ide&utm_medium=ide&utm_campaign=ide&utm_content=project-card\"\
-  >https://hyperskill.org/projects/50</a>"
+  \ not in cryptocurrency, but in knowledge and skills.</p></div>"
 programming_language: Java
 programming_language_version: 11
 content:
-  - Topics
   - Blockchain with Java
+  - Topics
 additional_files:
   - name: build.gradle
   - name: settings.gradle
 mode: Study
-yaml_version: 2
+yaml_version: 4

@@ -1,0 +1,15 @@
+type: choice
+is_multiple_choice: true
+options:
+  - text: buffering is only possible with byte output streams
+  - text: <b>flush()</b> method allows to release all data from a buffer
+  - text: buffering doesn't use a temporary storage
+  - text: buffering minimizes interactions with a destination
+files:
+  - name: src/Task.java
+    visible: true
+    learner_created: false
+feedback_link: https://hyperskill.org/learn/step/8842#comment
+status: Solved
+record: -1
+local_check: false

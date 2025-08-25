@@ -1,0 +1,7 @@
+content:
+  - Theory
+  - OutputStream class
+  - Types of output streams
+  - Byte output streams
+  - Buffering
+  - Convert to char array

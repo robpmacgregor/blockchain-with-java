@@ -1,2 +1,6 @@
 content:
-  - Instant
+  - Input streams
+  - Output streams
+  - Stack
+  - Memento
+  - Abstract factory

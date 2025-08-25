@@ -1,0 +1,15 @@
+type: choice
+is_multiple_choice: false
+options:
+  - text: An exception will be thrown.
+  - text: Prints &#x27;Streams&#x27;.
+  - text: Prints &#x27;Java&#x27;.
+  - text: Prints &#x27;Jav&#x27;.
+files:
+  - name: src/Task.java
+    visible: true
+    learner_created: false
+feedback_link: https://hyperskill.org/learn/step/32449#comment
+status: Solved
+record: -1
+local_check: false

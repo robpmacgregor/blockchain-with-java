@@ -3,11 +3,11 @@ hyperskill_project:
   ide_files: https://hyperskill.org/api/projects/50/additional-files/additional_files.json
   is_template_based: false
   use_ide: true
-update_date: "Thu, 01 Jan 1970 00:00:00 UTC"
+update_date: "Mon, 25 Aug 2025 16:15:53 UTC"
 stages:
   - id: 271
     step: 5413
-    is_completed: false
+    is_completed: true
   - id: 272
     step: 5414
     is_completed: false
@@ -27,6 +27,8 @@ topics:
   0:
     - title: Modulo division
       theory_id: 10586
+    - title: Computer algorithms
+      theory_id: 16547
     - title: Data structures
       theory_id: 40371
     - title: Abstract and concrete data structures
@@ -143,6 +145,8 @@ topics:
       theory_id: 13775
     - title: "Hashing: overview"
       theory_id: 9831
+    - title: Simplistic hash functions
+      theory_id: 40136
     - title: Hash function
       theory_id: 30143
     - title: Hash table
@@ -163,10 +167,10 @@ topics:
       theory_id: 3493
     - title: What are collections
       theory_id: 3770
-    - title: ArrayList
-      theory_id: 3567
     - title: The Collections framework overview
       theory_id: 3624
+    - title: ArrayList
+      theory_id: 3567
     - title: The List interface
       theory_id: 3581
     - title: Instant
