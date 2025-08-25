@@ -7,16 +7,16 @@ import java.util.*;
 
 class Block {
 
-    private HashString previousBlockHash;
-    private int id;
-    private long created_at;
-    private HashString hash;
+    private final HashString previousBlockHash;
+    private final int id;
+    private final long created_at;
+    private final HashString hash;
 
     public Block(HashString previousBlockHash, int id) {
         this.previousBlockHash = previousBlockHash;
         this.id = id;
         this.created_at = new Date().getTime();
-        this.hash = new HashString(String.format("%d%d", id, created_at));
+        this.hash = new HashString(String.format("%d%d%s", id, created_at, previousBlockHash));
     }
 
     public HashString getPreviousBlockHash() {
@@ -59,7 +59,7 @@ class InvalidBlockException extends RuntimeException{
 }
 
 class Blockchain {
-    private ArrayList<Block> blockchain = new ArrayList<>();
+    private final ArrayList<Block> blockchain = new ArrayList<>();
 
     public void generateNewBlock() {
         HashString previousBlockHash = new HashString("");
@@ -78,7 +78,7 @@ class Blockchain {
     public void validateBlockChain() throws InvalidBlockException {
 
         blockchain.forEach(block -> {
-            HashString hashString = new HashString(String.format("%d%d", block.getId(), block.getCreatedAt()));
+            HashString hashString = new HashString(String.format("%d%d%s", block.getId(), block.getCreatedAt(), block.getPreviousBlockHash()));
 
             if (!block.getHash().toString().equals(hashString.toString())) {
                 throw new InvalidBlockException(String.format("Hash %s is invalid for block id %d", block.getHash(), block.getId()));
@@ -103,7 +103,7 @@ class HashString {
                 byte[] encodedHash = messageDigest.digest(
                     string.getBytes(StandardCharsets.UTF_8)
                 );
-                this.hashString = HexFormat.of().formatHex(encodedHash);
+                hashString = HexFormat.of().formatHex(encodedHash);
             } catch (NoSuchAlgorithmException e) {
                 System.out.println(e.getMessage());
                 throw new RuntimeException(e.getMessage());
