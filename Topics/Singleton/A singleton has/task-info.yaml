@@ -1,0 +1,16 @@
+type: choice
+is_multiple_choice: true
+options:
+  - text: a public constructor to create new instances of the class
+  - text: a public static method that always returns the same instance of the class
+  - text: a field that keeps an instance of the class
+  - text: a method to destroy an outdated instance of the class
+files:
+  - name: src/Task.java
+    visible: true
+    learner_created: false
+feedback_link: https://hyperskill.org/learn/step/3308#comment
+status: Solved
+record: -1
+custom_name: A singleton has...
+local_check: false

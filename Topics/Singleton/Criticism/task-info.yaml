@@ -1,0 +1,15 @@
+type: choice
+is_multiple_choice: false
+options:
+  - text: It restricts the instantiation of a class to one object.
+  - text: It is too difficult to understand for developers.
+  - text: It is lazy (lazy initialization).
+  - text: It introduces a global state into the application.
+files:
+  - name: src/Task.java
+    visible: true
+    learner_created: false
+feedback_link: https://hyperskill.org/learn/step/3459#comment
+status: Solved
+record: -1
+local_check: false
