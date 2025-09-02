@@ -4,105 +4,55 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
-
-class ProofOfWork implements Runnable{
-    Block block;
-    private long minimumMagicNumber = -1;
-    private long maximumMagicNumber = -1;
-
-    public ProofOfWork(Block block) {
-        this.block = block;
-
-    }
-
-    public void setMinimumMagicNumber(long minimumMagicNumber) {
-        this.minimumMagicNumber = minimumMagicNumber;
-    }
-
-    public void setMaximumMagicNumber(long maximumMagicNumber) {
-        this.maximumMagicNumber = maximumMagicNumber;
-    }
-
-    @Override
-    public void run() throws RuntimeException {
-        if (minimumMagicNumber == -1 || maximumMagicNumber == -1) {
-            throw new RuntimeException("magic number range not set");
-        }
-
-        HashString tempHash;
-        long magicNumber;
-        final long minimumMagicNumber = this.minimumMagicNumber;
-        final long maximumMagicNumber = this.maximumMagicNumber;
-
-        while (block.getHash() == null) {
-            magicNumber = ThreadLocalRandom.current().nextLong(minimumMagicNumber, maximumMagicNumber);
-            tempHash = new HashString(String.format(
-                    "%d%d%s%d",
-                    block.getId(),
-                    block.getCreatedAt(),
-                    block.getPreviousBlockHash(),
-                    magicNumber));
-
-            if (tempHash.isProven()) {
-                block.setHash(tempHash);
-                block.setMagicNumber(magicNumber);
-            }
-        }
-    }
-}
+import java.util.concurrent.atomic.AtomicInteger;
 
 class Block {
 
     private final HashString previousBlockHash;
     private final int id;
-    private final long created_at;
-    private volatile HashString hash = null;
-    private long magicNumber;
-    private final int processingTime;
+    private final long createdAt;
+    private final int createdBy;
+    private final HashString hash;
+    private final long magicNumber;
+    private final long creationTimeInSeconds;
+    private static int nextId = 1;
 
-    public Block(HashString previousBlockHash, int id) throws InterruptedException {
-        long startTime = System.currentTimeMillis();
-
-        this.previousBlockHash = previousBlockHash;
+    private Block(
+            int id,
+            long createdAt,
+            int createdBy,
+            HashString previousBlockHash,
+            HashString hash,
+            long magicNumber,
+            long creationTimeInSeconds
+            ) {
+        this.hash = hash;
+        this.createdAt = createdAt;
+        this.createdBy = createdBy;
         this.id = id;
-        this.created_at = new Date().getTime();
-
-        ProofOfWork proofOfWork = new ProofOfWork(this);
-        int threadCount = 8;
-        Thread[] threads = new Thread[threadCount];
-
-        long n = 100_000_000_000_000L;
-        long min = 0;
-        long max;
-        for (int i = 0; i < threads.length; i++) {
-            max = min + (n / threadCount) -1;
-
-            proofOfWork.setMinimumMagicNumber(min);
-            proofOfWork.setMaximumMagicNumber(max);
-
-            min = max+1;
-
-            threads[i] = new Thread(proofOfWork, "PoW-" + i);
-            threads[i].start();
-            Thread.sleep(10);
-        }
-
-        try {
-            for (Thread thread : threads) {
-                thread.join();
-            }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        long endTime = System.currentTimeMillis();
-        this.processingTime = (int) (endTime - startTime) / 1000;
-
+        this.previousBlockHash = previousBlockHash;
+        this.magicNumber = magicNumber;
+        this.creationTimeInSeconds = creationTimeInSeconds;
     }
 
-    public HashString getPreviousBlockHash() {
-        return previousBlockHash;
+    public static Block create(
+            int id,
+            long createdAt,
+            int createdBy,
+            HashString previousBlockHash,
+            HashString hash,
+            long magicNumber,
+            long creationTimeInSeconds) {
+        return new Block(id, createdAt, createdBy, previousBlockHash, hash, magicNumber, creationTimeInSeconds);
+    }
+
+    public synchronized static int getNextId() {
+        int id = nextId;
+        nextId++;
+        return id;
     }
 
     public int getId() {
@@ -113,89 +63,136 @@ class Block {
         return hash;
     }
 
-    public long getCreatedAt() {
-        return created_at;
-    }
-
     public long getMagicNumber() {
         return magicNumber;
     }
 
-    public void setMagicNumber(long magicNumber) {
-        this.magicNumber = magicNumber;
+    public HashString getPreviousBlockHash() {
+        return previousBlockHash;
     }
 
-    public void setHash(HashString hash) {
-        this.hash = hash;
+    public long getCreatedAt() {
+        return createdAt;
     }
 
-    @Override
-    public String toString() {
-        return String.format(
-            "Block:%n" +
-            "Id: %d%n" +
-            "Timestamp: %d%n" +
-            "Magic number: %d%n" +
-            "Hash of the previous block:%n" +
-            "%s%n" +
-            "Hash of the block:%n" +
-            "%s%n" +
-            "Block was generating for %d seconds%n",
-            this.id,
-            this.created_at,
-            this.magicNumber,
-            this.previousBlockHash,
-            this.hash,
-            this.processingTime
-        );
+    public int getCreatedBy() {
+        return createdBy;
+    }
+
+    public long getCreationTimeInSeconds() {
+        return creationTimeInSeconds;
     }
 }
+
 class InvalidBlockException extends RuntimeException{
     public InvalidBlockException(String message) {
+        super(message);
+    }
+
+}class BlockNotFoundException extends RuntimeException{
+    public BlockNotFoundException(String message) {
         super(message);
     }
 }
 
 class Blockchain {
-    private final ArrayList<Block> blockchain = new ArrayList<>();
+    private volatile ArrayList<Block> blockchain = new ArrayList<>();
+    private final BlockValidator validator;
+    private AtomicInteger proofOfWorkComplexity = new AtomicInteger(0);
 
-    public void generateNewBlock() {
-        HashString previousBlockHash = new HashString("");
-        int id = 1;
+    public static int MAX_LENGTH = 5;
 
-        if (!blockchain.isEmpty()) {
-            Block previousBlock = blockchain.getLast();
-            previousBlockHash = previousBlock.getHash();
-            id = previousBlock.getId() + 1;
-        }
+    private final AtomicInteger nextBlockId = new AtomicInteger(1);
 
-        try{
-            Block newBlock = new Block(previousBlockHash, id);
-            blockchain.add(newBlock);
-        } catch (InterruptedException e) {
-            System.out.println(e.getMessage());
-        }
+    private final Object lock = new Object();
+
+    private Blockchain(BlockValidator validator) {
+        this.validator = validator;
     }
 
-    public void validateBlockChain() throws InvalidBlockException {
+    public static Blockchain create() {
+        return new Blockchain(new BlockValidator());
+    }
 
-        blockchain.forEach(block -> {
-            HashString hashString = new HashString(String.format("%d%d%s%d", block.getId(), block.getCreatedAt(), block.getPreviousBlockHash(), block.getMagicNumber()));
-
-            if (!block.getHash().toString().equals(hashString.toString())) {
-                throw new InvalidBlockException(String.format("Hash %s is invalid for block id %d", block.getHash(), block.getId()));
+    public void addBlock(Block block, PostAddAction postAddAction) throws InvalidBlockException{
+        synchronized (lock) {
+            if (getLength() >= Blockchain.MAX_LENGTH) {
+                return;
             }
-        });
+
+            if (getLength() > 0 && !validator.isValid(getLastBlock(), block)) {
+                System.out.println("Block Id " + block.getId() + " is not valid");
+                return;
+            }
+
+            blockchain.add(block);
+            incrementNextBlockId();
+            postAddAction.act();
+        }
     }
 
-    public ArrayList<Block> getBlockchain() {
+    public Block getBlock(int id) {
+        return (Block) blockchain.stream().filter(b -> b.getId() == id);
+
+    }
+
+    public Block getLastBlock() {
+        if (blockchain.isEmpty()) {
+            throw new BlockNotFoundException("Can't get last block, chain is empty");
+        }
+        return blockchain.getLast();
+    }
+
+    public ArrayList<Block> getAllBlocks() {
         return blockchain;
+    }
+
+    public int getProofOfWorkComplexity() {
+        return proofOfWorkComplexity.get();
+    }
+
+    public void incrementProofOfWorkComplexity() {
+        proofOfWorkComplexity.incrementAndGet();
+    }
+
+    public int getLength() {
+        synchronized (lock) {
+            return blockchain.size();
+        }
+    }
+
+    public int getNextBlockId() {
+        return nextBlockId.get();
+    }
+
+    public void incrementNextBlockId() {
+        nextBlockId.incrementAndGet();
+    }
+}
+
+class BlockValidator {
+
+    public boolean isValid(Block previousBlock, Block newBlock){
+        if (newBlock.getId() != previousBlock.getId()+1) {
+            return false;
+        }
+
+        HashString hash = new HashString(String.format(
+                "%s%d%s%d",
+                newBlock.getId(),
+                newBlock.getCreatedAt(),
+                previousBlock.getHash(),
+                newBlock.getMagicNumber()));
+
+        if (!newBlock.getHash().toString().equals(hash.toString())) {
+            return false;
+        }
+        return true;
     }
 }
 
 class HashString {
     private String hashString;
-    public static String prefix = "000000";
     public HashString(String string) {
         this.hashString = "0";
 
@@ -217,41 +214,137 @@ class HashString {
     public String toString() {
         return hashString;
     }
+}
 
-    public boolean isProven() {
-        return (hashString.startsWith(prefix));
+@FunctionalInterface
+interface PostMineAction {
+    public void act(Block block);
+}
+
+@FunctionalInterface
+interface PostAddAction {
+    public void act();
+}
+
+class Miner {
+    private final int minerId;
+    private final Blockchain blockchain;
+    private static int nextId = 1;
+
+    private Miner(Blockchain blockchain) {
+        this.minerId = getNextId();
+        this.blockchain = blockchain;
+    }
+
+    private int getNextId() {
+        int id = nextId;
+        nextId++;
+        return id;
+    }
+    public static Miner create (Blockchain blockchain) {
+        return new Miner(blockchain);
+    }
+
+    public void mineBlock(PostMineAction postMineAction) {
+        int localBlockchainLength = blockchain.getLength();
+        while (true) {
+            int id = blockchain.getNextBlockId();
+            HashString previousBlockHash = (blockchain.getLength() > 0) ? blockchain.getLastBlock().getHash() : new HashString("");
+            long createdAt = new Date().getTime();
+            long startTime = System.currentTimeMillis();
+            Optional<HashString> optHash = Optional.empty();
+            long magicNumber = 0;
+            while (optHash.isEmpty() || !proveHash(optHash.get())) {
+                if (blockchain.getLength() == Blockchain.MAX_LENGTH) {
+                    return;
+                }
+                if (localBlockchainLength < blockchain.getLength()) {
+                    id = blockchain.getNextBlockId();
+                    previousBlockHash = blockchain.getLastBlock().getHash();
+                    createdAt = new Date().getTime();
+                    startTime = System.currentTimeMillis();
+                    localBlockchainLength = blockchain.getLength();
+                }
+                magicNumber = ThreadLocalRandom.current().nextLong(0, 10000000000L);
+
+                optHash = Optional.of(new HashString(String.format(
+                        "%s%d%s%d",
+                        id,
+                        createdAt,
+                        previousBlockHash,
+                        magicNumber)));
+            }
+            long endTime = System.currentTimeMillis();
+            long creationTimeInSeconds = (endTime - startTime) / 1000;
+            Block block = createNewBlock(id, createdAt, minerId, previousBlockHash, optHash.get(), magicNumber, creationTimeInSeconds);
+            postMineAction.act(block);
+        }
+    }
+
+    private boolean proveHash(HashString hash) {
+        char[] chars = new char[blockchain.getProofOfWorkComplexity()];
+        Arrays.fill(chars, '0');
+        return hash.toString().startsWith(String.valueOf(chars));
+    }
+
+    private Block createNewBlock(
+            int id,
+            long createdAt,
+            int createdBy,
+            HashString previousBlockHash,
+            HashString hash,
+            long magicNumber,
+            long creationTimeInSeconds) {
+        return Block.create(id, createdAt, createdBy, previousBlockHash, hash, magicNumber, creationTimeInSeconds);
+    }
+}
+class BlockChainPrinter{
+    public static void print(Block block, int proofOfWorkComplexity) {
+        System.out.printf(
+                "Block:%n" +
+                        "Created by miner # %s%n" +
+                        "Id: %s%n" +
+                        "Timestamp: %d%n" +
+                        "Magic number: %d%n" +
+                        "Hash of the previous block:%n" +
+                        "%s%n" +
+                        "Hash of the block:%n" +
+                        "%s%n" +
+                        "Block was generating for %d seconds%n" +
+                        "N was increased to %d%n" +
+                        "%n",
+                block.getCreatedBy(),
+                block.getId(),
+                block.getCreatedAt(),
+                block.getMagicNumber(),
+                block.getPreviousBlockHash(),
+                block.getHash(),
+                block.getCreationTimeInSeconds(),
+                proofOfWorkComplexity
+        );
     }
 }
 
 public class Main {
-
-    public static final int NUMBER_OF_BLOCKS = 5;
+    private static final int NUMBER_OF_MINERS = 2;
 
     public static void main(String[] args) {
+        Blockchain blockchain = Blockchain.create();
+        try(ExecutorService executorService = Executors.newFixedThreadPool(NUMBER_OF_MINERS)) {
+            for (int i = 0; i < NUMBER_OF_MINERS; i++) {
+                Miner miner = Miner.create(blockchain);
+                executorService.execute(()->{
+                    miner.mineBlock(block -> {
+                        blockchain.addBlock(block, () -> {
+                            blockchain.incrementProofOfWorkComplexity();
+                            BlockChainPrinter.print(block, blockchain.getProofOfWorkComplexity());
+                        });
 
-        Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter how many zeros the hash must start with: ");
-        int prefixLength = scanner.nextInt();
-        System.out.println();
-
-        char[] c = new char[prefixLength];
-        Arrays.fill(c, '0');
-        HashString.prefix = String.valueOf(c);
-
-        Blockchain blockchain = new Blockchain();
-        for (int i = 0; i < NUMBER_OF_BLOCKS; i++) {
-            blockchain.generateNewBlock();
-        }
-
-        try{
-            blockchain.validateBlockChain();
-        } catch (InvalidBlockException e) {
+                    });
+                });
+            }
+        } catch (RuntimeException e) {
             System.out.println(e.getMessage());
-            System.exit(1);
         }
-
-        ArrayList<Block> blocks = blockchain.getBlockchain();
-
-        blocks.forEach(System.out::println);
     }
 }
