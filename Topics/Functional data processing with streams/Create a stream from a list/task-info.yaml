@@ -1,0 +1,15 @@
+type: choice
+is_multiple_choice: false
+options:
+  - text: ls.stream()
+  - text: ls.sequence()
+  - text: ls.listStream()
+  - text: ls.elements()
+files:
+  - name: src/Task.java
+    visible: true
+    learner_created: false
+feedback_link: https://hyperskill.org/learn/step/2382#comment
+status: Solved
+record: -1
+local_check: false
