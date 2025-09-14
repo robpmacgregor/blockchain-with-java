@@ -1,18 +1,15 @@
 package blockchain;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.security.*;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 class Block {
 
@@ -24,7 +21,7 @@ class Block {
     private final long magicNumber;
     private final long creationTimeInSeconds;
     private static int nextId = 1;
-    private final ChatMessage[] payload;
+    private final Transaction[] payload;
 
 
     private Block(
@@ -35,7 +32,7 @@ class Block {
             HashString hash,
             long magicNumber,
             long creationTimeInSeconds,
-            ChatMessage[] payload
+            Transaction[] payload
     ) {
         this.hash = hash;
         this.createdAt = createdAt;
@@ -55,7 +52,7 @@ class Block {
             HashString hash,
             long magicNumber,
             long creationTimeInSeconds,
-            ChatMessage[] payload
+            Transaction[] payload
     ) {
         return new Block(id, createdAt, createdBy, previousBlockHash, hash, magicNumber, creationTimeInSeconds, payload);
     }
@@ -94,7 +91,7 @@ class Block {
         return creationTimeInSeconds;
     }
 
-    public ChatMessage[] getPayload() {
+    public Transaction[] getPayload() {
         return payload;
     }
 }
@@ -116,7 +113,7 @@ class Blockchain {
     private volatile ArrayList<Block> blockchain = new ArrayList<>();
     private final BlockValidator validator;
     private AtomicInteger proofOfWorkComplexity = new AtomicInteger(0);
-    private ChatMessage[] nextBlockPayload;
+    private Transaction[] nextBlockPayload;
 
     public static int MAX_LENGTH = 5;
 
@@ -130,7 +127,8 @@ class Blockchain {
         this.validator = validator;
     }
 
-    public static Blockchain create() {
+    public static Blockchain create() throws NoSuchAlgorithmException {
+
         return new Blockchain(
                 new BlockValidator(
                         new MessageVerifier()
@@ -193,11 +191,11 @@ class Blockchain {
         nextBlockId.incrementAndGet();
     }
 
-    public synchronized ChatMessage[] getNextBlockPayload() {
+    public synchronized Transaction[] getNextBlockPayload() {
         return nextBlockPayload;
     }
 
-    public void setNextBlockPayload(ChatMessage[] nextBlockPayload) {
+    public void setNextBlockPayload(Transaction[] nextBlockPayload) {
         synchronized (setPayloadLock) {
             this.nextBlockPayload = nextBlockPayload;
         }
@@ -215,10 +213,10 @@ class BlockValidator {
         if (newBlock.getId() != previousBlock.getId()+1) {
             return false;
         }
-        ChatMessage[] chatMessages = newBlock.getPayload();
+        Transaction[] transactions = newBlock.getPayload();
 
-        for (ChatMessage chatMessage : chatMessages) {
-            if (!messageVerifier.verify(String.valueOf(chatMessage.getId()) + chatMessage.getMessage(), chatMessage.getSignature(), chatMessage.getPublicKey())) {
+        for (Transaction transaction : transactions) {
+            if (!messageVerifier.verify(transaction.toString(), transaction.getSignature(), transaction.getPublicKey())) {
                 return false;
             }
         }
@@ -229,7 +227,7 @@ class BlockValidator {
         }
 
         String payload = Arrays.stream(newBlock.getPayload())
-                .map(ChatMessage::toString)
+                .map(Transaction::toString)
                 .reduce("", (acc, next) -> acc + " " + next);
 
         HashString hash = new HashString(String.format(
@@ -283,10 +281,22 @@ class Miner {
     private final int minerId;
     private final Blockchain blockchain;
     private static int nextId = 1;
+    private User user;
 
     private Miner(Blockchain blockchain) {
         this.minerId = getNextId();
         this.blockchain = blockchain;
+    }
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    public User getUser() {
+        return user;
+    }
+
+    public int getMinerId() {
+        return minerId;
     }
 
     private int getNextId() {
@@ -298,7 +308,7 @@ class Miner {
         return new Miner(blockchain);
     }
 
-    public void mineBlock(ChatServer chatServer, PostMineAction postMineAction) throws NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException, InterruptedException {
+    public void mineBlock(TransactionServer transactionServer, TransactionFactory transactionFactory, PostMineAction postMineAction) throws NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException, InterruptedException {
         int localBlockchainLength = blockchain.getLength();
         while (true) {
             int id = blockchain.getNextBlockId();
@@ -307,7 +317,7 @@ class Miner {
             long startTime = System.currentTimeMillis();
             Optional<HashString> optHash = Optional.empty();
             long magicNumber = 0;
-            ChatMessage[] payload = new ChatMessage[0];
+            Transaction[] payload = new Transaction[0];
             while (optHash.isEmpty() || !proveHash(optHash.get())) {
                 if (blockchain.getLength() == Blockchain.MAX_LENGTH) {
                     return;
@@ -317,13 +327,20 @@ class Miner {
                     previousBlockHash = blockchain.getLastBlock().getHash();
                     createdAt = new Date().getTime();
                     startTime = System.currentTimeMillis();
-                    payload = blockchain.getNextBlockPayload();
+                    ArrayList<Transaction> payloadArray = new ArrayList<>();
+
+                    //TO DO: implement a non-blocking wait for next payload
+                    while(payloadArray.isEmpty()) {
+                       payloadArray.addAll(Arrays.stream(blockchain.getNextBlockPayload()).toList());
+                    }
+                    payloadArray.add(transactionFactory.create(getUser(), getUser(), 100));
+                    payload = payloadArray.toArray(Transaction[]::new);
                     localBlockchainLength = blockchain.getLength();
                 }
                 magicNumber = ThreadLocalRandom.current().nextLong(0, 10000000000L);
 
                 String payloadString = Arrays.stream(payload)
-                        .map(ChatMessage::toString)
+                        .map(Transaction::toString)
                         .reduce("", (acc, next) -> acc + " " + next);
 
                 optHash = Optional.of(new HashString(String.format(
@@ -365,7 +382,7 @@ class Miner {
             HashString hash,
             long magicNumber,
             long creationTimeInSeconds,
-            ChatMessage[] payload) {
+            Transaction[] payload) {
         return Block.create(
                 id,
                 createdAt,
@@ -383,7 +400,7 @@ class BlockChainPrinter{
     public static void print(Block block, int proofOfWorkComplexity) {
 
         String payloadString = Arrays.stream(block.getPayload())
-                .map(ChatMessage::toString)
+                .map(Transaction::toString)
                 .reduce("", (acc, next) -> acc + next + "\n");
 
         System.out.printf(
@@ -495,30 +512,31 @@ class MessageVerifier {
     }
 }
 
-class ChatMessageFactory {
+class TransactionFactory {
     MessageSigner messageSigner;
     MessageVerifier messageVerifier;
 
-    public ChatMessageFactory(MessageSigner messageSigner, MessageVerifier messageVerifier) {
+    public TransactionFactory(MessageSigner messageSigner, MessageVerifier messageVerifier) {
         this.messageSigner = messageSigner;
         this.messageVerifier = messageVerifier;
     }
 
-    public ChatMessage create(User user, String message) throws NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException {
-        ChatMessage chatMessage = new ChatMessage(user, message);
-        byte[] signature =  messageSigner.sign(String.valueOf(chatMessage.getId()) + chatMessage.getMessage());
-        PublicKey publicKey = user.getPublicKey();
-        chatMessage.setSignature(signature);
-        chatMessage.setPublicKey(publicKey);
-        return chatMessage;
+    public Transaction create(User sourceUser, User destinationUser, int value) throws NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException {
+        Transaction transaction = new Transaction(sourceUser, destinationUser, value);
+        byte[] signature =  messageSigner.sign(transaction.toString());
+        PublicKey publicKey = sourceUser.getPublicKey();
+        transaction.setSignature(signature);
+        transaction.setPublicKey(publicKey);
+        return transaction;
     }
 }
 
-class ChatMessage {
+class Transaction {
     private static int nextId = 1;
     private int id;
-    private User user;
-    private String message;
+    private User sourceUser;
+    private User destinationUser;
+    private int value;
     private byte[] signature;
     private PublicKey publicKey;
 
@@ -526,22 +544,27 @@ class ChatMessage {
         return nextId++;
     }
 
-    public ChatMessage(User user, String message) {
+    public Transaction(User sourceUser, User destimationUser, int value) {
         this.id = getNextId();
-        this.user = user;
-        this.message = message;
+        this.sourceUser = sourceUser;
+        this.destinationUser = destimationUser;
+        this.value = value;
     }
 
     public int getId() {
         return id;
     }
 
-    public User getUser() {
-        return user;
+    public int getValue() {
+        return value;
     }
 
-    public String getMessage() {
-        return message;
+    public User getDestinationUser() {
+        return destinationUser;
+    }
+
+    public User getSourceUser() {
+        return sourceUser;
     }
 
     public void setSignature(byte[] signature) {
@@ -560,71 +583,73 @@ class ChatMessage {
         return publicKey;
     }
 
-    public static ChatMessage create(User user, String message) {
-        return new ChatMessage(user, message);
+    public static Transaction create(User sourceUser, User destinationUser, int value) {
+        return new Transaction(sourceUser, destinationUser, value);
     }
 
     public String toString() {
-        return String.format("%d - %s: %s", id, user.getName(), message);
+        return String.format("%s sent %d VC to %s", sourceUser, value, destinationUser);
     }
 }
 
-class ChatServer {
-    private final ArrayList<ChatMessage> messages = new ArrayList<>();
+class TransactionServer {
+    private final ArrayList<Transaction> transactions = new ArrayList<>();
     private final Object lock = new Object();
 
-    public synchronized void addMessage(ChatMessage message) {
-        messages.add(message);
+    public synchronized void addTransaction(Transaction transaction) {
+        transactions.add(transaction);
     }
 
-    public  ArrayList<ChatMessage> getAllMessagesAndClear() {
+    public  ArrayList<Transaction> getAllTransactionsAndClear() {
         synchronized (lock) {
-            ArrayList<ChatMessage> tempMessageList = new ArrayList<ChatMessage>(messages);
-            messages.clear();
-            return tempMessageList;
+            ArrayList<Transaction> tempTransactionList = new ArrayList<Transaction>(transactions);
+            transactions.clear();
+            return tempTransactionList;
         }
     }
 
-    public static ChatServer create() {
-        return new ChatServer();
+    public static TransactionServer create() {
+        return new TransactionServer();
     }
 }
 
-class ChatClient {
+class TransactionClient {
     private final User user;
-    private final ChatServer server;
-    private final ChatMessageFactory chatMessageFactory;
+    private final TransactionServer server;
+    private final TransactionFactory transactionFactory;
 
-    public ChatClient(User user, ChatServer server, ChatMessageFactory chatMessageFactory) {
+    public TransactionClient(User user, TransactionServer server, TransactionFactory transactionFactory) {
         this.user = user;
         this.server = server;
-        this.chatMessageFactory = chatMessageFactory;
+        this.transactionFactory = transactionFactory;
     }
 
-    public void send(String message) throws InterruptedException, NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException {
-        ChatMessage chatMessage = chatMessageFactory.create(user, message);
-        server.addMessage(chatMessage);
+    public void send(User destinationUser, int value) throws InterruptedException, NoSuchAlgorithmException, IOException, InvalidKeySpecException, SignatureException, InvalidKeyException {
+        Transaction transaction = transactionFactory.create(user, destinationUser, value);
+        server.addTransaction(transaction);
     }
 
-    public static ChatClient create(User user, ChatServer server, ChatMessageFactory chatMessageFactory) {
-        return new ChatClient(user, server, chatMessageFactory);
+    public static TransactionClient create(User user, TransactionServer server, TransactionFactory transactionFactory) {
+        return new TransactionClient(user, server, transactionFactory);
     }
 }
 
-class ChatClientRunnable implements Runnable {
-    ChatClient chatClient;
-    List<String> messages;
+class TransactionClientRunnable implements Runnable {
+    TransactionClient transactionClient;
+    List<Integer> transactions;
 
-    public ChatClientRunnable(ChatClient chatClient, List<String> messages) {
-        this.chatClient = chatClient;
-        this.messages = messages;
+    public TransactionClientRunnable(TransactionClient transactionClient, List<Integer> transactions) {
+        this.transactionClient = transactionClient;
+        this.transactions = transactions;
     }
 
     @Override
     public void run() {
-        messages.forEach(m -> {
+        transactions.forEach(m -> {
             try {
-                chatClient.send(m);
+                transactionClient.send(new User("Morek"), m);
+                Thread.sleep(50);
+
             } catch (InterruptedException e) {
                 throw new RuntimeException(e.getMessage());
             } catch (NoSuchAlgorithmException | IOException | InvalidKeySpecException | SignatureException |
@@ -637,25 +662,26 @@ class ChatClientRunnable implements Runnable {
 
 class MinerRunnable implements Runnable {
     Miner miner;
-    ChatServer chatServer;
+    TransactionServer transactionServer;
     Blockchain blockchain;
+    private TransactionFactory transactionFactory;
 
-    public MinerRunnable(Miner miner, ChatServer chatServer, Blockchain blockchain) {
+    public MinerRunnable(Miner miner, TransactionServer transactionServer, Blockchain blockchain, TransactionFactory transactionFactory) {
         this.miner = miner;
-        this.chatServer = chatServer;
+        this.transactionServer = transactionServer;
         this.blockchain = blockchain;
+        this.transactionFactory = transactionFactory;
     }
 
     @Override
     public void run() {
         try {
-            miner.mineBlock(chatServer, block -> {
+            miner.mineBlock(transactionServer, transactionFactory, block -> {
                 blockchain.addBlock(block, () -> {
                     blockchain.incrementProofOfWorkComplexity();
                     BlockChainPrinter.print(block, blockchain.getProofOfWorkComplexity());
-                    Thread.sleep(50);
                     blockchain.setNextBlockPayload(
-                            chatServer.getAllMessagesAndClear().toArray(ChatMessage[]::new)
+                            transactionServer.getAllTransactionsAndClear().toArray(Transaction[]::new)
                     );
                 });
             });
@@ -668,19 +694,32 @@ class MinerRunnable implements Runnable {
 
 public class Main {
     private static final int NUMBER_OF_MINERS = 2;
-    private static final Map<String, List<String>> USERS = Map.of(
-            "Tom", List.of("Hi Alice", "I'm good, thanks", "How about you?", "I know, it's great"),
-            "Alice", List.of("Hi Tom", "How are you?", "I'm good too", "This chat is neat")
+    private static final Map<String, List<Integer>> USERS = Map.of(
+            "Tom", List.of(10, 20, 30),
+            "Alice", List.of(45, 5, 34)
     );
 
-    public static void main(String[] args) {
+
+
+    public static void main(String[] args) throws NoSuchAlgorithmException {
+
         Blockchain blockchain = Blockchain.create();
-        ChatServer chatServer = ChatServer.create();
+        TransactionServer transactionServer = TransactionServer.create();
 
         try (ExecutorService executorService = Executors.newFixedThreadPool(USERS.size() + NUMBER_OF_MINERS)) {
             for (int i = 0; i < NUMBER_OF_MINERS; i++) {
                 Miner miner = Miner.create(blockchain);
-                MinerRunnable minerRunnable = new MinerRunnable(miner, chatServer, blockchain);
+
+                User user = User.create("miner-"+ miner.getMinerId());
+                RSAKeysGenerator rsaKeysGenerator = new RSAKeysGenerator(1024);
+                user.setPrivateKey(rsaKeysGenerator.getPrivateKey());
+                user.setPublicKey(rsaKeysGenerator.getPublicKey());
+                miner.setUser(user);
+                MessageSigner messageSigner = new MessageSigner(user.getPrivateKey());
+                MessageVerifier messageVerifier = new MessageVerifier();
+                TransactionFactory transactionFactory = new TransactionFactory(messageSigner, messageVerifier);
+
+                MinerRunnable minerRunnable = new MinerRunnable(miner, transactionServer, blockchain, transactionFactory);
                 executorService.execute(minerRunnable);
             }
             USERS.entrySet()
@@ -694,10 +733,10 @@ public class Main {
                             user.setPublicKey(rsaKeysGenerator.getPublicKey());
                             MessageSigner messageSigner = new MessageSigner(user.getPrivateKey());
                             MessageVerifier messageVerifier = new MessageVerifier();
-                            ChatMessageFactory chatMessageFactory = new ChatMessageFactory(messageSigner, messageVerifier);
-                            ChatClient chatClient = ChatClient.create(user, chatServer, chatMessageFactory);
-                            ChatClientRunnable chatClientRunnable = new ChatClientRunnable(chatClient, entry.getValue());
-                            executorService.execute(chatClientRunnable);
+                            TransactionFactory transactionFactory = new TransactionFactory(messageSigner, messageVerifier);
+                            TransactionClient transactionClient = TransactionClient.create(user, transactionServer, transactionFactory);
+                            TransactionClientRunnable transactionClientRunnable = new TransactionClientRunnable(transactionClient, entry.getValue());
+                            executorService.execute(transactionClientRunnable);
                         } catch (NoSuchAlgorithmException | IOException | InvalidKeySpecException | SignatureException |
                                  InvalidKeyException e) {
                             throw new RuntimeException(e);
@@ -705,6 +744,16 @@ public class Main {
                     });
         } catch (RuntimeException e) {
             System.out.println(e.getMessage());
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidKeySpecException e) {
+            throw new RuntimeException(e);
+        } catch (SignatureException e) {
+            throw new RuntimeException(e);
+        } catch (InvalidKeyException e) {
+            throw new RuntimeException(e);
         }
     }
 }
